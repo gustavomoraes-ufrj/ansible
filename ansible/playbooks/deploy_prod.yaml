@@ -1,0 +1,81 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+  vars:
+    ambiente: prod
+
+  tasks:  
+  - include: pre-deploy.yaml 
+
+  - name: Copia o script gerar-md5.sh
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/integridade/sbin/gerar-md5.sh"
+      mode: 0755
+      dest: /root
+
+  - name: Define as senhas do sistema e configura parametros de segurança
+    shell: |
+      chmod 755 /usr/share/initramfs-tools/scripts/init-top/chkmem
+      systemctl enable je-connect-env
+      systemctl enable je-connect-chksum
+      systemctl enable je-connect-boot
+      sed -ie "s/\(^password_pbkdf2.* \).*/\1$(echo -e '{{ senha_grub_prod }}\n{{ senha_grub_prod }}'|grub-mkpasswd-pbkdf2|sed -ne '/PBKDF2/s/^.* //p')/" /etc/grub.d/01_superuser
+      echo -e '{{ senha_root_prod }}\n{{ senha_root_prod }}'|passwd
+      echo -e '{{ senha_eleicoes_prod }}\n{{ senha_eleicoes_prod }}'|passwd eleicoes
+    args:
+      executable: /bin/bash
+
+  - name: dasabilita xterm
+    replace:
+      path: "/home/eleicoes/.fluxbox/startup"
+      regexp: '(^xterm.*$)'
+      replace: '#\1'
+
+  - name: Move /usr/bin/*term
+    command: mv /usr/bin/{{ item }} /tmp/ 
+    with_items:
+      - koi8rxterm
+      - setterm
+      - uxterm
+      - lxterm
+      - xterm
+
+  - name: gera md5
+    shell: /root/gerar-md5.sh
+
+  - name: copia md5
+    copy:
+      remote_src: yes
+      src: /tmp/.so.md5
+      dest: /etc/ssl/private/.so.md5
+      mode: 0600
+
+  - include: pos-deploy.yaml 
+
+  - name: Move de volta /usr/bin/*term
+    command: mv /tmp/{{ item }} /usr/bin/ 
+    with_items:
+      - koi8rxterm
+      - setterm
+      - uxterm
+      - lxterm
+      - xterm
+
+  - name: Define as senhas do sistema e configura parametros de segurança
+    shell: |
+      chmod 000 /usr/share/initramfs-tools/scripts/init-top/chkmem
+      systemctl disable je-connect-env
+      systemctl disable je-connect-chksum
+      systemctl disable  je-connect-boot
+      sed -ie "s/\(^password_pbkdf2.* \).*/\1$(echo -e '{{ senha_grub_dev }}\n{{ senha_grub_dev }}'|grub-mkpasswd-pbkdf2|sed -ne '/PBKDF2/s/^.* //p')/" /etc/grub.d/01_superuser
+      echo -e '{{ senha_root_dev }}\n{{ senha_root_dev }}'|passwd
+      echo -e '{{ senha_eleicoes_dev }}\n{{ senha_eleicoes_dev }}'|passwd eleicoes
+    args:
+      executable: /bin/bash
+
+  - name: habilita xterm
+    replace:
+      path: "/home/eleicoes/.fluxbox/startup"
+      regexp: '^#(xterm.*$)'
+      replace: '\1'

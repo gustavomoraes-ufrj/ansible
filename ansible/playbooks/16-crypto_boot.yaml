@@ -1,0 +1,143 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+# Instalar collection do community luks: ansible-galaxy collection install community.crypto
+  
+  tasks:
+  - name: checa se vda3 eh criptografada
+    shell: |
+      cryptsetup luksDump /dev/vda3|grep Version|cut -f2
+    register: luksversion
+    changed_when: false
+
+  - name: verifica se existe pen.boot
+    stat:
+      path: /dev/mapper/pen.boot
+    register: existe_pen_boot
+
+  - name: desmonta /boot/efi
+    mount:
+      path: /boot/efi
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+    when: luksversion.stdout != '1'
+
+  - name: monta /boot
+    mount:
+      path: /boot
+      src: /dev/vda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: mounted
+    when: luksversion.stdout != '1'
+
+  - name: copia /boot para pasta temporaria
+    copy:
+      src: /boot
+      dest: /root
+      mode: preserve
+      remote_src: yes
+    when: luksversion.stdout != '1'
+
+  - name: desmonta /boot/efi
+    mount:
+      path: /boot/efi
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+    when: luksversion.stdout != '1'
+
+  - name: desmonta /boot
+    mount:
+      path: /boot
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+    when: luksversion.stdout != '1'
+
+  - name: cria particao boot criptografada
+    community.crypto.luks_device:
+      device: /dev/vda3
+      state: opened
+      passphrase: 12345678
+      name: pen.boot
+      type: luks1
+    when: luksversion.stdout != '1'
+    register: boot_luksopen
+
+  - name: cria novo sistema de arquivos em boot
+    filesystem:
+      fstype: ext4
+      dev: /dev/mapper/pen.boot
+    when: boot_luksopen.changed
+
+  - name: monta novo /boot
+    mount:
+      path: /boot
+      src: /dev/mapper/pen.boot
+      fstab: /tmp/tmp.fstab
+      fstype: ext4
+      state: mounted
+    when: boot_luksopen.changed
+
+  - name: copia os arquivos de volta para o novo boot
+    copy:
+      src: /root/boot/
+      dest: /boot
+      mode: preserve
+      remote_src: yes
+    when: boot_luksopen.changed
+
+  - name: monta novo /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstab: /tmp/tmp.fstab
+      fstype: vfat
+      state: mounted
+    when: boot_luksopen.changed
+
+  - name: recupera o uuid da particao de boot
+    shell: |
+      blkid -o value /dev/vda3|head -1
+    register: uuid_boot
+    changed_when: false
+  
+  - name: Altera o grub para boot criptografado
+    lineinfile:
+      path: /etc/default/grub
+      regexp: "^GRUB_CMDLINE_LINUX=.*"
+      line: GRUB_CMDLINE_LINUX="cryptdevice=/dev/disk/by-uuid/{{ uuid_boot.stdout }}:pen.boot panic=0"
+    register: grub_crypto_dev
+  
+  - name: Habilita o boot criptografado no grub
+    lineinfile:
+      path: /etc/default/grub
+      line: GRUB_ENABLE_CRYPTODISK=y
+    register: grub_crypto_enable
+
+  - name: copia modulo luks desenvolvimento cusmotizado
+    copy:
+      src: "{{source_files}}/source/je-script/luks/{{ item.source }}"
+      dest: "/usr/lib/grub/{{ item.dir }}/luks.mod"
+    with_items:
+      - { source: 'luks.mod.EFI-DESENV', dir: 'i386-efi' }
+      - { source: 'luks.mod.EFI64-DESENV', dir: 'x86_64-efi' }
+      - { source: 'luks.mod.MBR-DESENV', dir: 'i386-pc' }
+    register: copia_luks_mod
+
+  - name: update grub
+    shell: |
+      update-grub
+      grub-install /dev/vda
+    when: grub_crypto_dev.changed or grub_crypto_enable.changed or copia_luks_mod.changed
+
+  - name: Remove /boot e /boot/efi do fstab
+    lineinfile:
+      path: /etc/fstab
+      regexp: '/boot'
+      state: absent
+
+  - name: reboot - necessario antes de rodar atualizacao do kernel 
+    reboot:
+

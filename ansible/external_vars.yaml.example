@@ -1,0 +1,14 @@
+source_files: /home/andretti/dev/jecso
+tarfilename: JEC_Files
+ano: 2022
+sprint: 1
+versao: v6
+senha_grub_dev: 12345678
+senha_grub_hmg: 12345678
+senha_grub_prod: 12345678
+senha_root_dev: 12345678
+senha_root_hmg: 12345678
+senha_root_prod: 12345678
+senha_eleicoes_dev: 12345678
+senha_eleicoes_hmg: 12345678
+senha_eleicoes_prod: 12345678

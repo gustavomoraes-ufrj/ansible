@@ -1,0 +1,88 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: instala parted
+    apt:
+      name: ['parted', 'grub-efi-ia32-bin', 'grub-efi-amd64-bin', 'dosfstools', 'grub2-common']
+      state: latest
+
+  - name: desmonta efi
+    mount:
+      path: /boot/efi
+      src: /dev/sda1
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+
+  - name: desmonta /boot
+    mount:
+      path: /boot
+      src: /dev/sda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+      
+  - name: seta particao esp
+    parted:
+      device: /dev/vda
+      number: 1
+      flags: [ esp ]
+      state: present
+    register: parted_efi
+  
+  - name: create efi partition
+    filesystem:
+      fstype: vfat
+      dev: /dev/vda1
+      opts: -n EFI -F 32
+    when: parted_efi.changed
+
+  - name: cria diretorio /boot/efi
+    file:
+      path: /boot/efi
+      owner: root
+      group: root
+      mode: '0755'
+      state: directory
+
+  - name: monta /boot
+    mount:
+      path: /boot
+      src: /dev/vda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: mounted
+
+  - name: monta /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstype: vfat
+      fstab: /tmp/fstab
+      state: mounted
+
+  - name: checa se existe EFI
+    stat:
+      path: /boot/efi/EFI
+    register: existe_efi
+
+  - name: instala grub
+    shell: |
+      grub-install --removable --no-nvram --no-uefi-secure-boot --efi-directory=/boot/efi --boot-directory=/boot --target=i386-efi
+      grub-install --removable --no-nvram --no-uefi-secure-boot --efi-directory=/boot/efi --boot-directory=/boot --target=x86_64-efi
+    args:
+      executable: /bin/bash
+    when: existe_efi.stat.isdir is not defined
+
+  - name: desmonta /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstype: vfat
+      fstab: /tmp/fstab
+      state: unmounted
+    
+    

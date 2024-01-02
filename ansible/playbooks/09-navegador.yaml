@@ -1,0 +1,67 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+
+  - name: Adiciona o usuario navegador
+    user:
+      name: navegador
+      create_home: yes
+      shell: /sbin/nologin
+
+  - name: Instalando firejail
+    apt:
+      name: ['firejail','firejail-profiles']
+      state: latest
+      default_release: buster-backports
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: Instalando firefox-esr
+    apt:
+      name: ['firefox-esr','firefox-esr-l10n-pt-br']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: cria diretorio /opt/firefox
+    file:
+      path: /opt/firefox
+      owner: root
+      group: root
+      mode: '0755'
+      state: directory
+ 
+  - name: copia profile firefox
+    copy:
+      src: "{{source_files}}/source/je-script/navegador/profile"
+      dest: /opt/firefox
+      owner: navegador
+      group: navegador
+      mode: preserve
+
+  - name: cria diretorio /etc/firefox
+    file:
+      path: /etc/firefox/policies
+      owner: root
+      group: root
+      mode: '0755'
+      state: directory
+
+  - name: copia policies firefox
+    copy:
+      src: "{{source_files}}/source/je-script/navegador/policies.json"
+      dest: /etc/firefox/policies
+      owner: navegador
+      group: navegador
+      mode: '0644'
+
+  - name: copia script navegador-seguro
+    copy:
+      src: "{{source_files}}/source/je-script/navegador/navegador-seguro.sh.firejail"
+      dest: /usr/sbin/navegador-seguro.sh
+      owner: root
+      group: root
+      mode: '0755'

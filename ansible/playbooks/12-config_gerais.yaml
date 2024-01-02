@@ -1,0 +1,128 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: Verifica se arquivo do swap existe
+    stat:
+      path: /var/swapfile
+    register: existe_var_swapfile
+
+  - name: Cria arquivo var_swapfile
+    shell: |
+      dd if=/dev/zero of=/var/swapfile bs=512 count=65536
+      chmod 600 /var/swapfile
+      mkswap -L swapfile /var/swapfile
+    when: not existe_var_swapfile.stat.exists
+
+  - name: adiciona swapfile ao fstab
+    mount:
+      path: none
+      src: /var/swapfile
+      fstype: swap
+      opts: sw
+      state: present
+    
+  - name: Desabilita ipv6
+    lineinfile:
+      path: /etc/sysctl.d/disableipv6.conf
+      line: net.ipv6.conf.all.disable_ipv6=1
+      create: yes
+    register: desabilita_ipv6
+
+  - name: configura kernel_printk
+    lineinfile:
+      path: /etc/sysctl.conf
+      regexp: '^#?kernel.printk = '
+      line: kernel.printk = 3 4 1 7
+    register: configura_kernel_printk
+
+  - name: aplica config no sysctl
+    command: sysctl -p
+    when: desabilita_ipv6.changed or configura_kernel_printk.changed
+
+  - name: copia arquivo regras de firewall
+    copy:
+      src: "{{source_files}}/source/je-script/firewall/iptables.up.rules"
+      dest: /etc
+
+  - name: copia iptables wrapper
+    copy:
+      src: "{{source_files}}/source/je-script/firewall/iptables"
+      dest: /etc/network/if-pre-up.d
+      mode: 0755
+
+  - name: copia arquivos de rota padrao do ppp
+    copy:
+      src: "{{source_files}}/source/je-script/openvpn/{{ item }}"
+      dest: "/etc/ppp/{{ item }}"
+    with_items:
+      - ip-up.d/0001route
+      - ip-down.d/0001route
+
+  - name: remove entrada do cdrom do fstab
+    mount:
+      path: /media/cdrom0
+      state: absent
+
+  - name: altera parametro do fstab
+    replace:
+      path: /etc/fstab
+      regexp: '[1-9]$'
+      replace: 0
+
+  - name: desmonta dev_vda2
+    mount:
+      path: /media/Fat
+      state: unmounted
+
+  - name: verifica label da particao fat
+    shell: |
+      dosfslabel /dev/vda2|tr -d " "
+    register: output_dosfslabel_dev_vda2
+    changed_when: false
+
+  - name: define o label da particao fat
+    command: mkdosfs -n JE-FAT -F 32 /dev/vda2
+    when: output_dosfslabel_dev_vda2.stdout != "JE-FAT"
+
+  - name: criar diretorio media_Fat
+    file:
+      path: /media/Fat
+      state: directory
+
+  - name: adiciona JE-FAT ao fstab
+    mount:
+      path: /media/Fat
+      src: /dev/disk/by-label/JE-FAT
+      fstype: vfat
+      opts: defaults,uid=transportador
+      state: present
+
+  - name: copia usbmodeswitch rules
+    copy:
+      src: "{{source_files}}/source/je-script/usb-modeswitch/40-usb_modeswitch.rules"
+      dest: /etc/udev/rules.d
+
+  - name: mask ctrl-alt-del.target
+    systemd:
+      name: ctrl-alt-del.target
+      masked: yes
+
+  - name: configura login.conf
+    lineinfile:
+      path: /etc/systemd/logind.conf
+      regexp: '^#?NAutoVTs='
+      line: NAutoVTs=0
+
+  - name: configura login.conf
+    lineinfile:
+      path: /etc/systemd/logind.conf
+      regexp: '^#?ReserveVT='
+      line: ReserveVT=0
+
+  - name: mask getty_tty1
+    systemd:
+      name: getty@tty1.service
+      masked: yes

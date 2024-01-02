@@ -1,0 +1,63 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: instala softwares adicionais
+    apt:
+      name: ['mcrypt', 'wvdial', 'ntpdate', 'host', 'sudo', 'rfkill', 'xorg', 'xserver-xorg-legacy', 'fluxbox', 'feh', 'vpnc-scripts', 'libgtk-3-0', 'lightdm', 'xz-utils', 'localepurge', 'systemd-container', 'wireless-tools', 'wpasupplicant', 'libqt5core5a', 'attr', 'resolvconf', 'jq' ]
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: inserir a linha b43 no /etc/modules
+    lineinfile:
+      path: /etc/modules
+      line: b43
+
+  - name: copia rfkill-unblock.service
+    copy:
+      src: "{{source_files}}/source/je-script/servico/rfkill-unblock.service"
+      dest: /lib/systemd/system/rfkill-unblock.service
+      owner: root
+      group: root
+      mode: 0644
+  
+  - name: Ajusta timeout no udevadm settle
+    replace:
+      path: /etc/init.d/udev
+      regexp: '(^.*if udevadm settle); then$'
+      replace: '\1 -timeout=2; then'
+
+  - name: inserir a linha blacklist pcspkr
+    lineinfile:
+      path: /etc/modprobe.d/blacklist.conf
+      line: blacklist pcspkr
+      create: yes
+
+  - name: configura autologin no lightdm.conf
+    lineinfile:
+      path: /etc/lightdm/lightdm.conf
+      regexp: '^#?(autologin-user=).*$'
+      line: autologin-user=eleicoes
+
+  - name: copia arquivos para o home do usuario eleicoes
+    copy:
+      src: "{{source_files}}/source/je-script/home_eleicoes/"
+      mode: preserve
+      dest: /home/eleicoes
+      owner: eleicoes
+      group: eleicoes
+
+  - name: copia arquivo de configuracao do qt Trolltech.conf para /root/.config
+    copy:
+      src: "{{source_files}}/source/je-script/qtconfig/Trolltech.conf"
+      mode: preserve
+      dest: /root/.config/
+      owner: root 
+
+  - name: aplica patch na configuracao do xorg - Desabilita butoes do mouse
+    patch:
+      src: "{{source_files}}/source/je-script/patches/40-libinput.conf.patch"
+      dest: /usr/share/X11/xorg.conf.d/40-libinput.conf

@@ -1,0 +1,805 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  # 01 - Backports
+  - name: enable backports repository
+    apt_repository:
+      repo: deb http://ftp.br.debian.org/debian buster-backports main contrib non-free
+      state: present
+
+  - name: accept license
+    debconf:
+      name: 'firmware-ipw2x00'
+      question: 'firmware-ipw2x00/license/accepted'
+      value: 'true'
+      vtype: 'select'
+  
+  - name: install backports package
+    apt:
+      name: ['linux-image-amd64', 'atmel-firmware', 'firmware-linux', 'firmware-atheros', 'firmware-brcm80211', 'firmware-ipw2x00', 'firmware-iwlwifi', 'firmware-libertas', 'firmware-ralink', 'firmware-realtek', 'zd1211-firmware', 'firmware-linux-nonfree', 'firmware-b43-installer', 'libertas-firmware', 'firmware-b43legacy-installer','firmware-ti-connectivity', 'firmware-bnx2', 'firmware-bnx2x']
+      state: latest
+      default_release: buster-backports
+      update_cache: yes
+      cache_valid_time: 3600
+    register: install_backports
+
+  - name: get old kernels package names
+    shell: |
+      ver=$(dpkg -l|grep -i linux-image-amd64|tr -s " "|cut -d " " -f3)
+      dpkg -l|grep -i linux-image|tr -s " "|grep -v $ver|cut -d " " -f2
+    args:
+      executable: /bin/bash
+    register: oldkernels
+    when: install_backports.changed
+    changed_when: '"linux-image" in oldkernels.stdout'
+
+  - name: remove old kernels packages
+    apt:
+      name: "{{ oldkernels.stdout }}"
+      state: absent
+      purge: yes
+    register: removekernel
+    when: oldkernels.changed
+
+  - name: reboot after kernel upgrade
+    reboot:
+    when: removekernel.changed
+
+# 02 - GRUB:
+  - name: configura grub defaults
+    lineinfile:
+      path: /etc/default/grub
+      regexp: "{{ item.regex }}"
+      line: "{{ item.fileline }}"
+    with_items:
+      - { regex: '^#?GRUB_TIMEOUT=', fileline: 'GRUB_TIMEOUT=1' }
+      - { regex: '^#?GRUB_DEFAULT=', fileline: 'GRUB_DEFAULT=saved' }
+      - { regex: '^#?GRUB_SAVEDEFAULT=', fileline: 'GRUB_SAVEDEFAULT=true' }
+      - { regex: '^#?GRUB_HIDDEN_TIMEOUT=', fileline: 'GRUB_HIDDEN_TIMEOUT=1' }
+      - { regex: '^#?GRUB_TIMEOUT_STYLE=', fileline: 'GRUB_TIMEOUT_STYLE=hidden' }
+      - { regex: '^#?GRUB_DISABLE_SUBMENU=', fileline: 'GRUB_DISABLE_SUBMENU=y' }
+      - { regex: '^#?GRUB_GFXMODE=', fileline: 'GRUB_GFXMODE=800x600' }
+      - { regex: '^#?GRUB_DISABLE_RECOVERY=', fileline: 'GRUB_DISABLE_RECOVERY="true"' }
+
+#  - name: desabilita acesso ao shell do initrd
+#    lineinfile:
+#      path: /etc/default/grub
+#      regexp: '^(GRUB_CMDLINE_LINUX.*?)("| panic=0")$'
+#      line: '\g<1> panic=0"'
+#      backrefs: yes
+
+  - name: remove arquivos de config do grub
+    file:
+      path: "{{ item }}"
+      state: absent
+    with_items:
+      - /etc/grub.d/20_linux_xen
+      - /etc/grub.d/30_os-prober
+      - /etc/grub.d/40_custom
+      - /etc/grub.d/41_custom
+
+  - name: configura grub 10_linux
+    lineinfile:
+      path: /etc/grub.d/10_linux
+      regexp: "{{ item.regex }}"
+      line: "{{ item.fileline }}"
+    with_items:
+      - { regex: '^CLASS=', fileline: 'CLASS="--class gnu-linux --class gnu --class os --unrestricted"' }
+      - { regex: 'OS=', fileline: '      OS="JE-Connect GNU/Linux"' }
+
+  - name: comenta linha 10_linux
+    replace:
+      path: /etc/grub.d/10_linux
+      regexp: '(^[^#].*echo "\$message".*$)'
+      replace: '#\1'
+
+  - name: copia 11_linux e 01_superuser
+    copy:
+      src: "{{source_files}}/source/je-script/grub/{{ item }}"
+      dest: /etc/grub.d
+      owner: root
+      group: root
+      mode: 0755
+    with_items:
+      - 01_superuser
+      - 11_linux
+
+  - name: configurar senha do grub para 12345678
+    shell: |
+      sed -ie "s/\(^password_pbkdf2.* \).*/\1$(echo -e '12345678\n12345678'|grub-mkpasswd-pbkdf2|sed -ne '/PBKDF2/s/^.* //p')/" /etc/grub.d/01_superuser
+    args:
+      executable: /bin/bash
+
+# 03 - Network
+  - name: disable net setup rule
+    file:
+      src: /dev/null
+      dest: /etc/udev/rules.d/80-net-setup-link.rules
+      state: link
+
+  - name: aplica patch em dhclient-script
+    patch:
+      src: "{{source_files}}/source/je-script/patches/dhclient-script.patch"
+      dest: /sbin/dhclient-script
+
+  - name: configura apt.conf
+    lineinfile:
+      path: /etc/apt/apt.conf
+      line: 'Apt::Install-Recommends "false";'
+      create: yes
+
+  - name: atualiza os pacotes
+    apt:
+      upgrade: safe
+
+# 04 - Uefi
+  - name: instala parted
+    apt:
+      name: ['parted', 'grub-efi-ia32-bin', 'grub-efi-amd64-bin', 'dosfstools', 'grub2-common']
+      state: latest
+
+  - name: desmonta efi
+    mount:
+      path: /boot/efi
+      src: /dev/sda1
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+
+  - name: desmonta /boot
+    mount:
+      path: /boot
+      src: /dev/sda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: unmounted
+      
+  - name: seta particao esp
+    parted:
+      device: /dev/vda
+      number: 1
+      flags: [ esp ]
+      state: present
+    register: parted_efi
+  
+  - name: create efi partition
+    filesystem:
+      fstype: vfat
+      dev: /dev/vda1
+      opts: -n EFI -F 32
+    when: parted_efi.changed
+
+  - name: cria diretorio /boot/efi
+    file:
+      path: /boot/efi
+      owner: root
+      group: root
+      mode: '0755'
+      state: directory
+
+  - name: monta /boot
+    mount:
+      path: /boot
+      src: /dev/vda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: mounted
+
+  - name: monta /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstype: vfat
+      fstab: /tmp/fstab
+      state: mounted
+
+  - name: checa se existe EFI
+    stat:
+      path: /boot/efi/EFI
+    register: existe_efi
+
+  - name: instala grub
+    shell: |
+      grub-install --removable --no-nvram --no-uefi-secure-boot --efi-directory=/boot/efi --boot-directory=/boot --target=i386-efi
+      grub-install --removable --no-nvram --no-uefi-secure-boot --efi-directory=/boot/efi --boot-directory=/boot --target=x86_64-efi
+    args:
+      executable: /bin/bash
+    when: existe_efi.stat.isdir is not defined
+
+  - name: desmonta /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstype: vfat
+      fstab: /tmp/fstab
+      state: unmounted
+
+
+# 05 - Software
+  - name: instala softwares adicionais
+    apt:
+      name: ['mcrypt', 'wvdial', 'ntpdate', 'host', 'sudo', 'rfkill', 'xorg', 'xserver-xorg-legacy', 'fluxbox', 'feh', 'vpnc-scripts', 'libgtk-3-0', 'lightdm', 'xz-utils', 'localepurge', 'systemd-container', 'wireless-tools', 'wpasupplicant', 'libqt5core5a', 'attr', 'resolvconf', 'jq' ]
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: inserir a linha b43 no /etc/modules
+    lineinfile:
+      path: /etc/modules
+      line: b43
+
+  - name: copia rfkill-unblock.service
+    copy:
+      src: "{{source_files}}/source/je-script/servico/rfkill-unblock.service"
+      dest: /lib/systemd/system/rfkill-unblock.service
+      owner: root
+      group: root
+      mode: 0644
+  
+  - name: Ajusta timeout no udevadm settle
+    replace:
+      path: /etc/init.d/udev
+      regexp: '(^.*if udevadm settle); then$'
+      replace: '\1 -timeout=2; then'
+
+  - name: inserir a linha blacklist pcspkr
+    lineinfile:
+      path: /etc/modprobe.d/blacklist.conf
+      line: blacklist pcspkr
+      create: yes
+
+  - name: configura autologin no lightdm.conf
+    lineinfile:
+      path: /etc/lightdm/lightdm.conf
+      regexp: '^#?(autologin-user=).*$'
+      line: autologin-user=eleicoes
+
+  - name: copia arquivos para o home do usuario eleicoes
+    copy:
+      src: "{{source_files}}/source/je-script/home_eleicoes/"
+      mode: preserve
+      dest: /home/eleicoes
+      owner: eleicoes
+      group: eleicoes
+
+  - name: copia arquivo de configuracao do qt Trolltech.conf para /root/.config
+    copy:
+      src: "{{source_files}}/source/je-script/qtconfig/Trolltech.conf"
+      mode: preserve
+      dest: /root/.config/
+      owner: root 
+
+#  - name: aplica patch na configuracao do xorg - Desabilita botoes do mouse
+# patch:
+# src: "{{source_files}}/source/je-script/patches/40-libinput.conf.patch"
+# dest: /usr/share/X11/xorg.conf.d/40-libinput.conf
+
+
+# 06 - Plymouth
+  - name: instala softwares adicionais
+    apt:
+      name: ['plymouth','plymouth-themes-script']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: Modifica default grub splash
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '^GRUB_CMDLINE_LINUX_DEFAULT="quiet"'
+      line: GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+    register: grub_splash
+
+  - name: monta /boot
+    mount:
+      path: /boot
+      src: /dev/vda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: mounted
+
+  - name: monta /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstype: vfat
+      fstab: /tmp/fstab
+      state: mounted
+
+  - name: atualiza grub
+    shell: |
+      update-grub
+    args:
+      executable: /bin/bash
+    when: grub_splash.changed
+
+  - name: copia arquivos do plymouth para o initramfs
+    copy:
+      remote_src: yes
+      src: "/usr/share/initramfs-tools/{{item}}"
+      dest: "/etc/initramfs-tools/{{item}}"
+      mode: preserve
+    with_items:
+      - hooks/plymouth
+      - scripts/init-premount/plymouth
+      - scripts/init-bottom/plymouth
+
+  - name: copia arquivo jecversions
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/jecversions"
+      dest: /etc/initramfs-tools/scripts/init-premount/jecversions
+      mode: 0755
+
+  - name: copia tema do plymouth
+    copy:
+      src: "{{source_files}}/source/je-splash/temas/JESplash"
+      dest: /usr/share/plymouth/themes
+      mode: preserve
+    register: plymouth_theme
+
+  - name: seta o tema do plymouth
+    shell: |
+      plymouth-set-default-theme JESplash
+      plymouth-set-default-theme -R JESplash
+    args:
+      executable: /bin/bash
+    when: plymouth_theme.changed
+
+  - name: altera mensagem do plymouth
+    replace:
+      path: /etc/init.d/plymouth
+      regexp: '(^.*TEXT=")Shutting.*$'
+      replace: \1Aguarde. Desligando o sistema..."
+
+  - name: altera mensagem do plymouth
+    replace:
+      path: /etc/init.d/plymouth
+      regexp: '(^.*TEXT=")Restarting.*$'
+      replace: \1Aguarde. Reiniciando o sistema..."
+
+
+
+
+# 07 - Jeconnect
+  - name: instala pacotes para o app je-connect
+    apt:
+      name: ['python-qt4','qt4-qtconfig','python-crypto','python-dbus','udisks2','python3','python3-pyqt4', 'python3-crypto','python3-dbus','libpython3.7','python3-openssl','openssl']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: instala pacotes adicionais para python - Gustavo
+    apt:
+      name: ['python3-pip','pyqt4-dev-tools','qt4-designer','python3-dev']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: Instala SetupTools e Cython - Gustavo
+    shell: pip3 install setuptools Cython
+
+  - name: instala softwares de suporte ao desenvolvimento - Gustavo
+    apt:
+      name: ['net-tools', 'git', 'guake', 'vim', 'dnsutils', 'htop', 'gcc', 'libdpkg-perl', 'apt-file']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: copia app do je-connect
+    copy:
+      src: "{{source_files}}/source/je-connect"
+      dest: /opt
+      mode: preserve
+
+  - name: copia ssl private
+    copy:
+      src: "{{source_files}}/source/je-script/je-connect/private/"
+      dest: /etc/ssl/private
+      mode: preserve
+
+  - name: copia arquivo sudo
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/jeconnect_sudo"
+      dest: /etc/sudoers
+      mode: 0440
+      owner: root
+      group: root
+
+  - name: copia certificados raiz acjec
+    copy:
+      src: "{{source_files}}/source/je-script/AC/"
+      dest: /etc/ssl/certs
+
+# 09 - Navegador
+  - name: Adiciona o usuario navegador
+    user:
+      name: navegador
+      create_home: yes
+      shell: /sbin/nologin
+
+  - name: Instalando firejail
+    apt:
+      name: ['firejail','firejail-profiles']
+      state: latest
+      default_release: buster-backports
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: Instalando firefox-esr
+    apt:
+      name: ['firefox-esr','firefox-esr-l10n-pt-br']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: cria diretorio /opt/firefox
+    file:
+      path: /opt/firefox
+      owner: root
+      group: root
+      mode: '0755'
+      state: directory
+ 
+  - name: copia profile firefox
+    copy:
+      src: "{{source_files}}/source/je-script/navegador/profile"
+      dest: /opt/firefox
+      owner: navegador
+      group: navegador
+      mode: preserve
+
+  - name: cria diretorio /etc/firefox
+    file:
+      path: /etc/firefox/policies
+      owner: root
+      group: root
+      mode: '0755'
+      state: directory
+
+  - name: copia policies firefox
+    copy:
+      src: "{{source_files}}/source/je-script/navegador/policies.json"
+      dest: /etc/firefox/policies
+      owner: navegador
+      group: navegador
+      mode: '0644'
+
+  - name: copia script navegador-seguro
+    copy:
+      src: "{{source_files}}/source/je-script/navegador/navegador-seguro.sh.firejail"
+      dest: /usr/sbin/navegador-seguro.sh
+      owner: root
+      group: root
+      mode: '0755'
+
+# 10 - Transportador
+  - name: Adiciona o usuario transportador
+    user:
+      name: transportador
+      home: /home/transportador
+      shell: /usr/sbin/nologin
+
+  - name: copia transportador-seguro.sh
+    copy:
+      src: "{{source_files}}/source/je-script/transportador/transportador-seguro.sh.firejail"
+      dest: /sbin/transportador-seguro.sh
+      mode: '0755'
+      owner: root
+      group: root
+  
+  - name: Copy mount_transp.sh
+    copy:
+       src: "{{source_files}}/source/je-script/transportador/mount_transp.sh"
+       dest: /sbin
+       mode: 0755
+       owner: root
+       group: root
+
+  - name: criar diretorio media_Fat
+    file:
+      path: /opt/transportador
+      owner: transportador
+      group: transportador
+      mode: '0755'
+      state: directory
+
+# 11 - Scripts_SO
+  - name: copia systemd-udevd
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/systemd-udevd.service.d"
+      dest: /etc/systemd/system/systemd-udevd.service.d
+      owner: root
+      group: root
+      mode: 0644
+    register: copia_systemd_udevd
+
+  - name: restart udev
+    command: udevadm control --reload
+    when: copia_systemd_udevd.changed
+
+  - name: copia scripts do sistema
+    copy:
+      src:  "{{source_files}}/source/je-script/scripts/{{ item.src }}"
+      dest: "{{ item.dest }}"
+      mode: "{{ item.mode }}"
+    with_items:
+      - { src: 'integridade/sbin/je-connect-chksum', dest: '/sbin', mode: '0750' }
+      - { src: 'integridade/sbin/je-connect-brick', dest: '/sbin', mode: '0750' }
+      - { src: 'je-connect-boot', dest: '/sbin', mode: '0750' }
+      - { src: 'integridade/systemd/je-connect-chksum.service', dest: '/lib/systemd/system', mode: '0644' }
+      - { src: 'integridade/systemd/je-connect-env.service', dest: '/lib/systemd/system', mode: '0644' }
+      - { src: 'je-connect-boot.service', dest: '/lib/systemd/system', mode: '0644' }
+      - { src: 'initrd/chkmem', dest: '/usr/share/initramfs-tools/scripts/init-top', mode: '0000' }
+      - { src: 'scrypt-kdf/scrypt-master/bin64/scrypt-kdf', dest: '/bin', mode: '0750' }
+      - { src: 'scrypt-kdf/scrypt-master/bin64/libscrypt.so', dest: '/lib', mode: '0644' }
+      - { src: 'askpass/askpass-je', dest: '/lib/cryptsetup', mode: '0755' }
+
+  - name: copia arquivos do initramfs-tools
+    copy:
+      remote_src: yes
+      src: "/usr/share/initramfs-tools/{{item}}"
+      dest: "/etc/initramfs-tools/{{item}}"
+      mode: preserve
+    with_items:
+      - hooks/cryptroot
+      - scripts/local-top/cryptroot
+
+  - name: aplica patch em /etc/systemd/resolved.conf
+    patch:
+      src: "{{source_files}}/source/je-script/patches/resolved-conf.patch"
+      dest: /etc/systemd/resolved.conf
+  
+  - name: aplica patch em /etc/initramfs-tools/hooks/cryptroot
+    patch:
+      src: "{{source_files}}/source/je-script/patches/hooks_cryptroot.patch"
+      dest: /etc/initramfs-tools/hooks/cryptroot
+
+  - name: aplica patch em /etc/initramfs-tools/scripts/local-top/cryptroot
+    patch:
+      src: "{{source_files}}/source/je-script/patches/scripts_localtop_cryptroot.patch"
+      dest: /etc/initramfs-tools/scripts/local-top/cryptroot
+
+  - name: aplica patch em /usr/lib/cryptsetup/functions
+    patch:
+      src: "{{source_files}}/source/je-script/patches/cryptroot_functions.patch"
+      dest: /usr/lib/cryptsetup/functions
+
+  - name: recria o initram
+    shell: update-initramfs -u
+
+# 12 - Config_Gerais
+  - name: Verifica se arquivo do swap existe
+    stat:
+      path: /var/swapfile
+    register: existe_var_swapfile
+
+  - name: Cria arquivo var_swapfile
+    shell: |
+      dd if=/dev/zero of=/var/swapfile bs=512 count=65536
+      chmod 600 /var/swapfile
+      mkswap -L swapfile /var/swapfile
+    when: not existe_var_swapfile.stat.exists
+
+  - name: adiciona swapfile ao fstab
+    mount:
+      path: none
+      src: /var/swapfile
+      fstype: swap
+      opts: sw
+      state: present
+    
+  - name: Desabilita ipv6
+    lineinfile:
+      path: /etc/sysctl.d/disableipv6.conf
+      line: net.ipv6.conf.all.disable_ipv6=1
+      create: yes
+    register: desabilita_ipv6
+
+  - name: configura kernel_printk
+    lineinfile:
+      path: /etc/sysctl.conf
+      regexp: '^#?kernel.printk = '
+      line: kernel.printk = 3 4 1 7
+    register: configura_kernel_printk
+
+  - name: aplica config no sysctl
+    command: sysctl -p
+    when: desabilita_ipv6.changed or configura_kernel_printk.changed
+
+  - name: copia arquivo regras de firewall
+    copy:
+      src: "{{source_files}}/source/je-script/firewall/iptables.up.rules"
+      dest: /etc
+
+  - name: copia iptables wrapper
+    copy:
+      src: "{{source_files}}/source/je-script/firewall/iptables"
+      dest: /etc/network/if-pre-up.d
+      mode: 0755
+
+  - name: copia arquivos de rota padrao do ppp
+    copy:
+      src: "{{source_files}}/source/je-script/openvpn/{{ item }}"
+      dest: "/etc/ppp/{{ item }}"
+    with_items:
+      - ip-up.d/0001route
+      - ip-down.d/0001route
+
+  - name: remove entrada do cdrom do fstab
+    mount:
+      path: /media/cdrom0
+      state: absent
+
+  - name: altera parametro do fstab
+    replace:
+      path: /etc/fstab
+      regexp: '[1-9]$'
+      replace: 0
+
+  - name: desmonta dev_vda2
+    mount:
+      path: /media/Fat
+      state: unmounted
+
+  - name: verifica label da particao fat
+    shell: |
+      dosfslabel /dev/vda2|tr -d " "
+    register: output_dosfslabel_dev_vda2
+    changed_when: false
+
+  - name: define o label da particao fat
+    command: mkdosfs -n JE-FAT -F 32 /dev/vda2
+    when: output_dosfslabel_dev_vda2.stdout != "JE-FAT"
+
+  - name: criar diretorio media_Fat
+    file:
+      path: /media/Fat
+      state: directory
+
+  - name: adiciona JE-FAT ao fstab
+    mount:
+      path: /media/Fat
+      src: /dev/disk/by-label/JE-FAT
+      fstype: vfat
+      opts: defaults,uid=transportador
+      state: present
+
+  - name: copia usbmodeswitch rules
+    copy:
+      src: "{{source_files}}/source/je-script/usb-modeswitch/40-usb_modeswitch.rules"
+      dest: /etc/udev/rules.d
+
+  - name: mask ctrl-alt-del.target
+    systemd:
+      name: ctrl-alt-del.target
+      masked: yes
+
+  - name: configura login.conf
+    lineinfile:
+      path: /etc/systemd/logind.conf
+      regexp: '^#?NAutoVTs='
+      line: NAutoVTs=0
+
+  - name: configura login.conf
+    lineinfile:
+      path: /etc/systemd/logind.conf
+      regexp: '^#?ReserveVT='
+      line: ReserveVT=0
+
+  - name: mask getty_tty1
+    systemd:
+      name: getty@tty1.service
+      masked: yes
+
+# 13 - openvpn
+  - name: Adiciona o usuario openvpn
+    user:
+      name: openvpn
+      home: /nonexistent
+      create_home: no
+      shell: /bin/false
+
+  - name: Cria diretorio do openvpn
+    file:
+      path: /opt/openvpn/etc/openvpn
+      state: directory
+      mode: '0755'
+
+  - name: Cria diretorio do openvpn
+    file:
+      path: /opt/openvpn/tmp
+      state: directory
+      mode: '0755'
+
+  - name: instala openvpn
+    apt:
+      name: ['openvpn', 'openvpn-systemd-resolved']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: copia update-resolvconf do openvpn
+    copy:
+      remote_src: yes
+      src: /etc/openvpn/update-resolv-conf
+      dest: /opt/openvpn/etc/openvpn
+      mode: '0755'
+
+  - name: copia unpriv-ip  da base versionada
+    copy:
+      src: "{{source_files}}/source/je-script/openvpn/unpriv-ip"
+      dest: /usr/sbin/
+      mode: '0755'
+
+  - name: Desabilitar servico automatico do openvpn
+    systemd: 
+      name: openvpn
+      state: stopped
+      enabled: no
+  
+  - name: Seta dono e grupo eleicoes para diretorio /opt/openvpn
+    file:
+      path: /opt/openvpn
+      state: directory
+      mode: '0755'
+      recurse: yes
+      owner: openvpn
+      group: openvpn
+
+# 14 - USB-Modeswitch
+  - name: copia os pacotes do usb-modeswitch
+    copy:
+      src: "{{source_files}}/source/je-script/usb-modeswitch"
+      dest: /tmp
+
+  - name: Remove o usb-modeswitch antigo
+    apt:
+      name: usb-modeswitch
+      state: absent
+      purge: yes
+
+  - name: Instala o usb-modeswitch
+    apt:
+      deb: /tmp/usb-modeswitch/usb-modeswitch-2.6_0-JEC-1_amd64.deb
+      state: present
+  
+  - name: Instala o usb-modeswitch-data
+    apt:
+      deb: /tmp/usb-modeswitch/usb-modeswitch-data_20191128-1_amd64.deb
+      state: present
+
+# 15 - Udev
+  - name: Cria o ponto de montagem /media/JE-media
+    file:
+      path: /media/JE-media
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: copia os arquivos necessarios para montagem de dispositivos usb
+    copy:
+      src: "{{source_files}}/source/je-script/udev/{{ item.source }}"
+      dest: "{{ item.dest }}"
+      mode: "{{ item.perm }}"
+    with_items:
+#      - { source: 70-usb-keyboards.rules, dest: /etc/udev/rules.d, perm: '0644' }
+      - { source: 99-local-pendrive.rules, dest: /etc/udev/rules.d, perm: '0644' }
+      - { source: check_fluxbox.sh, dest: /usr/local/sbin, perm: '0755' }
+      - { source: usb-mount.sh, dest: /usr/local/sbin, perm: '0755' }
+      - { source: usb-mount@.service, dest: /etc/systemd/system, perm: '0755' }
+    register: copia_udev
+
+  - name: Remove Xmodmap do Home - Gustavo
+    shell: rm -f /home/eleicoes/.Xmodmap
+
+  - name: Reload no systemd
+    systemd:
+      daemon_reload: yes
+
+  - name: restart udev
+    command: udevadm control --reload
+    when: copia_udev.changed

@@ -1,0 +1,23 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+  vars: 
+    ambiente: dev
+    
+  tasks:
+  - include: pre-deploy.yaml 
+
+  - name: Define as senhas do sistema e configura parametros de segurança
+    shell: |
+      chmod 000 /usr/share/initramfs-tools/scripts/init-top/chkmem
+      systemctl disable je-connect-env
+      systemctl disable je-connect-chksum
+      systemctl enable je-connect-boot
+      sed -ie "s/\(^password_pbkdf2.* \).*/\1$(echo -e '{{ senha_grub_dev }}\n{{ senha_grub_dev }}'|grub-mkpasswd-pbkdf2|sed -ne '/PBKDF2/s/^.* //p')/" /etc/grub.d/01_superuser
+      echo -e '{{ senha_root_dev }}\n{{ senha_root_dev }}'|passwd
+      echo -e '{{ senha_eleicoes_dev }}\n{{ senha_eleicoes_dev }}'|passwd eleicoes
+    args:
+      executable: /bin/bash
+
+  - include: pos-deploy.yaml 

@@ -1,0 +1,16 @@
+source_files: /home/gustavo/dev/jeConnect/jecso
+daemon_source_files: /home/gustavo/dev/jeConnect/jecdaemon
+tarfilename: JEC_Files
+ano: 2022
+sprint: 2
+release: v5
+version: "2022.2.05"
+senha_grub_dev: 12345678
+senha_grub_hmg: OKc7BKDSijN2TFcserJtNw==
+senha_grub_prod: 2J9U0bUaxNwpyMu+kDNsJg==
+senha_root_dev: 12345678
+senha_root_hmg: YoIWp+3/TD/L8izeHrZnbw==
+senha_root_prod: T4dzqiO2PTYM5w3GF2d6NQ== 
+senha_eleicoes_dev: 12345678
+senha_eleicoes_hmg: U3QOFM1MZrFM5fyEYUDmpg==
+senha_eleicoes_prod: CTwuXaLrYsmPFVVnGC4HDA== 

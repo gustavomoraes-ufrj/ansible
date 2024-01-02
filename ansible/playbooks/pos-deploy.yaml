@@ -1,0 +1,34 @@
+  - name: cria arquivo tar.gz
+    shell: |
+      cd /
+      tar --xattrs -czvf /tmp/JEC_Files.tgz --exclude=/dev/* --exclude=/proc/* --exclude=/tmp/* --exclude=/sys/*/* --exclude=/run/* --exclude=/root/[a-zA-Z]* --exclude=/root/.[a-bd-zA-Z]* --exclude=/tmp/* --exclude=/usr/bin/ssh --exclude=/usr/sbin/sshd / || true
+    args:
+      executable: /bin/bash
+
+  - name: copia arquivo regras de firewall liberadas de volta
+    copy:
+      src: "{{source_files}}/source/je-script/firewall/iptables.up.rules"
+      dest: /etc/iptables.up.rules
+
+  - name: aplica patch em /etc/initramfs-tools/scripts/local-top/cryptroot
+    patch:
+      src: "{{source_files}}/source/je-script/patches/scripts_localtop_cryptroot_posdeploy.patch"
+      dest: /etc/initramfs-tools/scripts/local-top/cryptroot
+
+  - name: enable ssh server
+    systemd:
+      name: ssh
+      enabled: yes
+
+  - name: verifica se o tar.gz foi gerado
+    stat:
+      path: /tmp/JEC_Files.tgz
+    register: existe_tgz
+
+  - name: Baixa o tar.gz gerado
+    fetch:
+      src: /tmp/JEC_Files.tgz
+      dest: "/tmp/{{ tarfilename }}-{{ ano }}.{{ sprint }}.{{ release }}-{{ ambiente }}.tgz"
+      flat: yes
+    when: existe_tgz.stat.exists
+    

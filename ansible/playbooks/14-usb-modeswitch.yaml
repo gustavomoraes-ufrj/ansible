@@ -1,0 +1,26 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: copia os pacotes do usb-modeswitch
+    copy:
+      src: "{{source_files}}/source/je-script/usb-modeswitch"
+      dest: /tmp
+
+  - name: Remove o usb-modeswitch antigo
+    apt:
+      name: usb-modeswitch
+      state: absent
+      purge: yes
+
+  - name: Instala o usb-modeswitch
+    apt:
+      deb: /tmp/usb-modeswitch/usb-modeswitch-2.6_0-JEC-1_amd64.deb
+      state: present
+  
+  - name: Instala o usb-modeswitch-data
+    apt:
+      deb: /tmp/usb-modeswitch/usb-modeswitch-data_20191128-1_amd64.deb
+      state: present

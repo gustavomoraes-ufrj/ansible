@@ -1,0 +1,126 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+    - include: monta-boot.yaml
+
+    - name: copia arquivo .deb - de instalacao do kernel
+      copy:
+        src: "{{source_files}}/source/je-kernel/linux-image-5.10.103-jec2022_5.10.103-jec2022-1_amd64.deb"
+        dest: /tmp/
+  
+    - name: instalacao kernel personalizado do JEC
+      apt:
+        deb: /tmp/linux-image-5.10.103-jec2022_5.10.103-jec2022-1_amd64.deb
+      register: install_kernel
+    
+    - name: get old kernels package names
+      shell: |
+           uname -r
+      args:
+        executable: /bin/bash
+      register: currentkernels
+      when: install_kernel.changed
+    
+    - name: remove old kernels packages
+      apt:
+        name: "linux-image-{{ currentkernels.stdout }}"
+        state: absent
+        purge: yes
+      register: removekernel
+      when: currentkernels.changed
+
+    - name: procura je-connect-root 
+      shell: |
+        grep -c '^\/dev\/mapper\/jeconnect-root.*remount-ro,iversion' /etc/fstab || true
+      args: 
+        executable: /bin/bash
+      register: iversionroot
+
+    - name: configura root /etc/fstab com iversion 
+      lineinfile:
+        path: /etc/fstab
+        regexp: '(^\/dev\/mapper\/jeconnect-root.*remount-ro)(.*)$'
+        line: '\1,iversion\2'
+        backrefs: yes
+      when: iversionroot.stdout == "0"
+
+    - name: procura je-connect-var 
+      shell: |
+        grep -c '^\/dev\/mapper\/jeconnect-var.*defaults,iversion' /etc/fstab || true 
+      args:
+        executable: /bin/bash
+      register: iversionvar
+
+    - name: configura var /etc/fstab com iversion 
+      lineinfile:
+        path: /etc/fstab
+        regexp: '(^\/dev\/mapper\/jeconnect-var.*defaults)(.*)$'
+        line: '\1,iversion\2' 
+        backrefs: yes
+      when: iversionvar.stdout == "0"
+
+    - name: procura ima config no /etc/default/grub 
+      shell: |
+        grep -c 'rootflags=i_version dolvm lsm=integrity ima_appraise=.* ima_policy=tcb ima_policy=appraise_tcb' /etc/default/grub || true 
+      args:
+        executable: /bin/bash
+      register: ima
+
+    - name: Modifica GRUB para ima configuracoes FIX 
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^(GRUB_CMDLINE_LINUX=\")(.*)$'
+        line: '\1rootflags=i_version dolvm lsm=integrity ima_appraise=fix ima_policy=tcb ima_policy=appraise_tcb \2'
+        backrefs: yes
+      when: ima.stdout == "0"
+      register: grubmodificado
+
+    - name: Modifica GRUB para ima configuracoes FIX se tiver LOG 
+      replace:
+        path: /etc/default/grub
+        regexp: 'ima_appraise=log'
+        replace: 'ima_appraise=fix'
+      register: grubfix 
+
+
+    - name: Rodar update-grub
+      shell: |
+        update-grub
+      args:
+        executable: /bin/bash
+      when: grubmodificado.changed or grubfix.changed
+
+    - name: reboot after kernel upgrade
+      reboot:
+      when: grubmodificado.changed or grubfix.changed
+
+    - include: monta-boot.yaml
+
+    - name: Rodar find para gerar hash ima
+      shell: |
+        find / -fstype ext4 -type f -uid 0 -exec dd if='{}' of=/dev/null count=0 status=none \; || true  
+      args: 
+        executable: /bin/bash
+
+    - name: Modifica GRUB para ima configuracoes LOG 
+      replace:
+        path: /etc/default/grub
+        regexp: 'ima_appraise=fix'
+        replace: 'ima_appraise=log'
+      register: grublog
+
+    - name: Rodar update-grub novamente
+      shell: |
+        update-grub
+      args:
+        executable: /bin/bash
+      when: grublog.changed
+
+    - name: reboot para mudar para modo ima LOG 
+      reboot:
+      when: grublog.changed
+
+    - include: monta-boot.yaml

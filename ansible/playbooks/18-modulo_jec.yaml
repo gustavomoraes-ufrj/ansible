@@ -1,0 +1,31 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+    - name: copia modulo customizado do kernel
+      copy:
+        src: "{{source_files}}/source/je-kernel/fatm.ko.5.10.103-jec2022"
+        dest: /lib/modules/5.10.103-jec2022/kernel/drivers/misc/fatm.ko
+        owner: root
+        group: root
+        mode: '0644'
+      register: copia_modulo
+  
+    - name: carrega o modulo customizado no depmod
+      shell: |
+        depmod -a
+      args:
+        executable: /bin/bash
+      when: copia_modulo.changed
+
+    - name: Adiciona o modulo customizado no /etc/moduloes
+      lineinfile:
+        path: /etc/modules
+        line: fatm
+
+    - name: Carrega o modulo customizado no kernel
+      modprobe:
+        name: fatm
+        state: present

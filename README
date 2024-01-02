@@ -1,0 +1,12 @@
+Instruções de instalação em Fedora Linux
+
+Criar um diretorio para armazenar as vms
+
+mkdir /home/vms
+chown qemu /home/vms
+
+Criar um arquivo .env (seguir o exemplo existente no arquivo .env.exemplo)
+Criar um arquivo ansible/external_vars.yaml com as variáveis usadas nos playbooks ansible (usar como base o arquivo ansible/external_vars.yaml.exemplo)
+
+Alterar a chave publica ssh no arquivo preseed.cfg
+

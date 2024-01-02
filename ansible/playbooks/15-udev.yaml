@@ -1,0 +1,36 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: Cria o ponto de montagem /media/JE-media
+    file:
+      path: /media/JE-media
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: copia os arquivos necessarios para montagem de dispositivos usb
+    copy:
+      src: "{{source_files}}/source/je-script/udev/{{ item.source }}"
+      dest: "{{ item.dest }}"
+      mode: "{{ item.perm }}"
+    with_items:
+      - { source: 70-usb-keyboards.rules, dest: /etc/udev/rules.d, perm: '0644' }
+      - { source: 99-local-pendrive.rules, dest: /etc/udev/rules.d, perm: '0644' }
+      - { source: check_fluxbox.sh, dest: /usr/local/sbin, perm: '0755' }
+      - { source: usb-mount.sh, dest: /usr/local/sbin, perm: '0755' }
+      - { source: usb-mount@.service, dest: /etc/systemd/system, perm: '0755' }
+    register: copia_udev
+
+  - name: Reload no systemd
+    systemd:
+      daemon_reload: yes
+
+  - name: restart udev
+    command: udevadm control --reload
+    when: copia_udev.changed
+
+

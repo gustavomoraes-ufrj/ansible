@@ -1,0 +1,69 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: configura grub defaults
+    lineinfile:
+      path: /etc/default/grub
+      regexp: "{{ item.regex }}"
+      line: "{{ item.fileline }}"
+    with_items:
+      - { regex: '^#?GRUB_TIMEOUT=', fileline: 'GRUB_TIMEOUT=1' }
+      - { regex: '^#?GRUB_DEFAULT=', fileline: 'GRUB_DEFAULT=saved' }
+      - { regex: '^#?GRUB_SAVEDEFAULT=', fileline: 'GRUB_SAVEDEFAULT=true' }
+      - { regex: '^#?GRUB_HIDDEN_TIMEOUT=', fileline: 'GRUB_HIDDEN_TIMEOUT=1' }
+      - { regex: '^#?GRUB_TIMEOUT_STYLE=', fileline: 'GRUB_TIMEOUT_STYLE=hidden' }
+      - { regex: '^#?GRUB_DISABLE_SUBMENU=', fileline: 'GRUB_DISABLE_SUBMENU=y' }
+      - { regex: '^#?GRUB_GFXMODE=', fileline: 'GRUB_GFXMODE=800x600' }
+      - { regex: '^#?GRUB_DISABLE_RECOVERY=', fileline: 'GRUB_DISABLE_RECOVERY="true"' }
+
+#  - name: desabilita acesso ao shell do initrd
+#    lineinfile:
+#      path: /etc/default/grub
+#      regexp: '^(GRUB_CMDLINE_LINUX.*?)("| panic=0")$'
+#      line: '\g<1> panic=0"'
+#      backrefs: yes
+
+  - name: remove arquivos de config do grub
+    file:
+      path: "{{ item }}"
+      state: absent
+    with_items:
+      - /etc/grub.d/20_linux_xen
+      - /etc/grub.d/30_os-prober
+      - /etc/grub.d/40_custom
+      - /etc/grub.d/41_custom
+
+  - name: configura grub 10_linux
+    lineinfile:
+      path: /etc/grub.d/10_linux
+      regexp: "{{ item.regex }}"
+      line: "{{ item.fileline }}"
+    with_items:
+      - { regex: '^CLASS=', fileline: 'CLASS="--class gnu-linux --class gnu --class os --unrestricted"' }
+      - { regex: 'OS=', fileline: '      OS="JE-Connect GNU/Linux"' }
+
+  - name: comenta linha 10_linux
+    replace:
+      path: /etc/grub.d/10_linux
+      regexp: '(^[^#].*echo "\$message".*$)'
+      replace: '#\1'
+
+  - name: copia 11_linux e 01_superuser
+    copy:
+      src: "{{source_files}}/source/je-script/grub/{{ item }}"
+      dest: /etc/grub.d
+      owner: root
+      group: root
+      mode: 0755
+    with_items:
+      - 01_superuser
+      - 11_linux
+
+  - name: configurar senha do grub para 12345678
+    shell: |
+      sed -ie "s/\(^password_pbkdf2.* \).*/\1$(echo -e '12345678\n12345678'|grub-mkpasswd-pbkdf2|sed -ne '/PBKDF2/s/^.* //p')/" /etc/grub.d/01_superuser
+    args:
+      executable: /bin/bash

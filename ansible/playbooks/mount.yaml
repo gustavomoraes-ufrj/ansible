@@ -1,0 +1,9 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+  vars: 
+    ambiente: dev
+    
+  tasks:
+  - include: monta-boot.yaml 

@@ -1,0 +1,26 @@
+    - name: abre particao boot criptografada
+      community.crypto.luks_device:
+        device: /dev/vda3
+        state: opened
+        passphrase: 12345678
+        name: pen.boot
+        type: luks1
+      register: boot_luksopen
+
+    - name: monta /boot
+      mount:
+        path: /boot
+        src: /dev/mapper/pen.boot
+        fstab: /tmp/tmp.fstab
+        fstype: ext4
+        state: mounted
+      when: boot_luksopen.changed
+
+    - name: monta /boot/efi
+      mount:
+        path: /boot/efi
+        src: /dev/vda1
+        fstab: /tmp/tmp.fstab
+        fstype: vfat
+        state: mounted
+      when: boot_luksopen.changed

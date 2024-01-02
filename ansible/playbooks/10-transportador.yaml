@@ -1,0 +1,35 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: Adiciona o usuario transportador
+    user:
+      name: transportador
+      home: /home/transportador
+      shell: /usr/sbin/nologin
+
+  - name: copia transportador-seguro.sh
+    copy:
+      src: "{{source_files}}/source/je-script/transportador/transportador-seguro.sh.firejail"
+      dest: /sbin/transportador-seguro.sh
+      mode: '0755'
+      owner: root
+      group: root
+  
+  - name:
+    copy:
+       src: "{{source_files}}/source/je-script/transportador/mount_transp.sh"
+       dest: /sbin
+       mode: 0755
+       owner: root
+       group: root
+
+  - name: criar diretorio media_Fat
+    file:
+      path: /opt/transportador
+      owner: transportador
+      group: transportador
+      mode: '0755'
+      state: directory

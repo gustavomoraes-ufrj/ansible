@@ -1,0 +1,37 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: instala pacotes para o app je-connect
+    apt:
+      name: ['python-qt4','qt4-qtconfig','python-crypto','python-dbus','udisks2','python3','python3-pyqt4', 'python3-crypto','python3-dbus','libpython3.7','python3-openssl','openssl']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: copia app do je-connect
+    copy:
+      src: "{{source_files}}/source/je-connect"
+      dest: /opt
+      mode: preserve
+
+  - name: copia ssl private
+    copy:
+      src: "{{source_files}}/source/je-script/je-connect/private/"
+      dest: /etc/ssl/private
+      mode: preserve
+
+  - name: copia arquivo sudo
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/jeconnect_sudo"
+      dest: /etc/sudoers
+      mode: 0440
+      owner: root
+      group: root
+
+  - name: copia certificados raiz acjec
+    copy:
+      src: "{{source_files}}/source/je-script/AC/"
+      dest: /etc/ssl/certs

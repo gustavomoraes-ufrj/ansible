@@ -1,0 +1,59 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: Adiciona o usuario openvpn
+    user:
+      name: openvpn
+      home: /nonexistent
+      create_home: no
+      shell: /bin/false
+
+  - name: Cria diretorio do openvpn
+    file:
+      path: /opt/openvpn/etc/openvpn
+      state: directory
+      mode: '0755'
+
+  - name: Cria diretorio do openvpn
+    file:
+      path: /opt/openvpn/tmp
+      state: directory
+      mode: '0755'
+
+  - name: instala openvpn
+    apt:
+      name: ['openvpn', 'openvpn-systemd-resolved']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: copia update-resolvconf do openvpn
+    copy:
+      remote_src: yes
+      src: /etc/openvpn/update-resolv-conf
+      dest: /opt/openvpn/etc/openvpn
+      mode: '0755'
+
+  - name: copia unpriv-ip  da base versionada
+    copy:
+      src: "{{source_files}}/source/je-script/openvpn/unpriv-ip"
+      dest: /usr/sbin/
+      mode: '0755'
+
+  - name: Desabilitar servico automatico do openvpn
+    systemd: 
+      name: openvpn
+      state: stopped
+      enabled: no
+  
+  - name: Seta dono e grupo eleicoes para diretorio /opt/openvpn
+    file:
+      path: /opt/openvpn
+      state: directory
+      mode: '0755'
+      recurse: yes
+      owner: openvpn
+      group: openvpn

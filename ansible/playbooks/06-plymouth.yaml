@@ -1,0 +1,86 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: instala softwares adicionais
+    apt:
+      name: ['plymouth','plymouth-themes-script']
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+
+  - name: Modifica default grub splash
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '^GRUB_CMDLINE_LINUX_DEFAULT="quiet"'
+      line: GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+    register: grub_splash
+
+  - name: monta /boot
+    mount:
+      path: /boot
+      src: /dev/vda3
+      fstype: ext4
+      fstab: /tmp/tmp.fstab
+      state: mounted
+
+  - name: monta /boot/efi
+    mount:
+      path: /boot/efi
+      src: /dev/vda1
+      fstype: vfat
+      fstab: /tmp/fstab
+      state: mounted
+
+  - name: atualiza grub
+    shell: |
+      update-grub
+    args:
+      executable: /bin/bash
+    when: grub_splash.changed
+
+  - name: copia arquivos do plymouth para o initramfs
+    copy:
+      remote_src: yes
+      src: "/usr/share/initramfs-tools/{{item}}"
+      dest: "/etc/initramfs-tools/{{item}}"
+      mode: preserve
+    with_items:
+      - hooks/plymouth
+      - scripts/init-premount/plymouth
+      - scripts/init-bottom/plymouth
+
+  - name: copia arquivo jecversions
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/jecversions"
+      dest: /etc/initramfs-tools/scripts/init-premount/jecversions
+      mode: 0755
+
+  - name: copia tema do plymouth
+    copy:
+      src: "{{source_files}}/source/je-splash/temas/JESplash"
+      dest: /usr/share/plymouth/themes
+      mode: preserve
+    register: plymouth_theme
+
+  - name: seta o tema do plymouth
+    shell: |
+      plymouth-set-default-theme JESplash
+      plymouth-set-default-theme -R JESplash
+    args:
+      executable: /bin/bash
+    when: plymouth_theme.changed
+
+  - name: altera mensagem do plymouth
+    replace:
+      path: /etc/init.d/plymouth
+      regexp: '(^.*TEXT=")Shutting.*$'
+      replace: \1Aguarde. Desligando o sistema..."
+
+  - name: altera mensagem do plymouth
+    replace:
+      path: /etc/init.d/plymouth
+      regexp: '(^.*TEXT=")Restarting.*$'
+      replace: \1Aguarde. Reiniciando o sistema..."

@@ -1,0 +1,41 @@
+  - name: Escreve a versão do release no arquivo jeconnect_version
+    lineinfile:
+      path: /etc/jeconnect_version
+      regexp: "^.*$"
+      line: "{{ version }}"
+      create: yes
+
+  - include: monta-boot.yaml
+
+  - name: disable ssh server
+    systemd:
+      name: ssh
+      enabled: no
+
+  - name: Executa limpeza no sistema
+    shell: |
+      rm -rf /var/cache/apt/* >/dev/null 2>&1
+      rm -rf /var/cache/man/* >/dev/null 2>&1
+      rm -rf /var/lib/apt/lists/* >/dev/null 2>&1
+      rm -rf /usr/share/doc/* >/dev/null 2>&1
+      rm -rf /usr/share/man/* >/dev/null 2>&1
+      rm -rf /usr/share/info/* >/dev/null 2>&1
+      rm -rf /var/log/installer/* >/dev/null 2>&1
+      for i in $(find -type f /var/log/) ; do >$i ; done >/dev/null 2>&1
+      cd /usr/share/locale
+      ls|grep -v '^pt_BR$\|^pt$\|^en$'|xargs rm -rf
+      cd /usr/share/i18n/locales
+      ls|grep -v '^pt_BR$\|^en_US$'|xargs rm -f
+    args:
+      executable: /bin/bash
+
+  - name: copia arquivo regras de firewall padrao do kit
+    copy:
+      src: "{{source_files}}/source/je-script/firewall/iptables.up.rules.deploy"
+      dest: /etc/iptables.up.rules
+
+  - name: aplica patch em /etc/initramfs-tools/scripts/local-top/cryptroot
+    patch:
+      src: "{{source_files}}/source/je-script/patches/scripts_localtop_cryptroot_predeploy.patch"
+      dest: /etc/initramfs-tools/scripts/local-top/cryptroot
+

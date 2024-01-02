@@ -1,0 +1,73 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: instala pacotes para o app jec-gerador
+    apt:
+      name: ['python-qt4','qt4-qtconfig','python-crypto','python-dbus','udisks2','python3','python3-pyqt4', 'pyqt4-dev-tools', 'python3-crypto','python3-dbus', 'python3-requests', 'libpython3.7','python3-openssl','openssl', 'python3-urllib3', 'qt4-designer', 'python3-lxml', 'python3-pyqt5', 'pyqt5-dev-tools' ]
+      state: latest
+      update_cache: yes
+
+  - name: copia app do je-connect
+    copy:
+      src: "{{source_files}}/source/jec-gerador"
+      dest: /opt
+      mode: preserve
+
+  - name: copia arquivo sudo
+    copy:
+      src: "{{source_files}}/source/je-script/scripts/gerador_sudo"
+      dest: /etc/sudoers.d/gerador
+      mode: 0440
+      owner: root
+      group: root
+
+  - name: Cria diretorios /opt/jecache e /etc/openvpn
+    file: 
+       path: "{{ item.diretorio }}" 
+       state: directory
+       mode: '0755'
+    with_items:
+      - { diretorio: '/opt/jecache/apps' } 
+      - { diretorio: '/opt/jecache/files' } 
+      - { diretorio: '/etc/openvpn' } 
+    register: cria_opt_jecache
+
+  - name: copia luks.mod  para /opt/jecache
+    copy:
+      src: "{{source_files}}/source/je-script/luks/{{item}}"
+      dest: /opt/jecache/files
+      mode: 0755
+      owner: gerador
+      group: gerador
+    loop:
+      - luks.mod.EFI64-PRODUCAO
+      - luks.mod.EFI-PRODUCAO
+      - luks.mod.MBR-PRODUCAO
+    when: cria_opt_jecache
+
+  - name: copia luks.mod  para /usr/lib/grub/x86_64-efi/luks.mod
+    copy:
+      src: "{{source_files}}/source/je-script/luks/luks.mod.EFI64-PRODUCAO"
+      dest: /usr/lib/grub/x86_64-efi/luks.mod
+      mode: 0644
+      owner: root
+      group: root
+
+  - name: copia acjec.crt para /opt/jecache/files/acjec.crt 
+    copy:
+      src: "{{source_files}}/source/je-script/AC/acjec.crt"
+      dest: /opt/jecache/files/acjec.crt
+      mode: 0664
+      owner: gerador
+      group: gerador
+
+  - name: copia policy-env para /etc           
+    copy:
+      src: "{{source_files}}/source/je-script/gerador/policy-env"
+      dest: /etc
+      mode: 0755
+      owner: root
+      group: root

@@ -1,0 +1,214 @@
+# run with the -K flag to sudo permission
+# ex: ansible-playbook -K playbooks/main.yml 
+
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+ 
+  tasks:
+
+    # - name: cria diretorio /home/eleicoes/dev/jecdaemon
+    #   file:
+    #     path: /home/eleicoes/dev/jecdaemon
+    #     owner: root
+    #     group: root
+    #     mode: '0755'
+    #     state: directory
+
+    # - name: copia main.py
+    #   copy:
+    #     src: "{{daemon_source_files}}/main.py"
+    #     dest: /home/eleicoes/dev/jecdaemon
+    #     mode: preserve
+
+    # - name: copia setup.py
+    #   copy:
+    #     src: "{{daemon_source_files}}/setup.py"
+    #     dest: /home/eleicoes/dev/jecdaemon
+    #     mode: preserve
+
+    # - name: cria diretorio /home/eleicoes/dev/jecdaemon/src
+    #   file:
+    #     path: /home/eleicoes/dev/jecdaemon/src
+    #     owner: root
+    #     group: root
+    #     mode: '0755'
+    #     state: directory
+
+    # - name: copia fakeHeadersHideEntry
+    #   copy:
+    #     src: "{{daemon_source_files}}/src/fakeHeadersHideEntry"
+    #     dest: /home/eleicoes/dev/jecdaemon/src
+    #     mode: preserve
+
+    # - name: copia stripBinary
+    #   copy:
+    #     src: "{{daemon_source_files}}/src/stripBinary"
+    #     dest: /home/eleicoes/dev/jecdaemon/src
+    #     mode: preserve
+
+    # - name: cria diretorio /home/eleicoes/dev/jecdaemon/files
+    #   file:
+    #     path: /home/eleicoes/dev/jecdaemon/files
+    #     owner: root
+    #     group: root
+    #     mode: '0755'
+    #     state: directory
+
+    # - name: copia xorscura
+    #   copy:
+    #     src: "{{daemon_source_files}}/files/xorscura"
+    #     dest: /home/eleicoes/dev/jecdaemon/files
+    #     mode: preserve
+
+    # - name: copia jecdaemon.service
+    #   copy:
+    #     src: "{{daemon_source_files}}/files/jecdaemon.service"
+    #     dest: /home/eleicoes/dev/jecdaemon/files
+    #     mode: preserve
+
+
+
+
+
+
+
+
+    - name: cria diretorio /jecdaemon_root
+      file:
+        path: /jecdaemon_root
+        owner: root
+        group: root
+        mode: '0755'
+        state: directory
+
+    - name: copia /jecdaemon_root/ovpn.py
+      copy:
+        src: "{{daemon_source_files}}/ovpn.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/agent.py
+      copy:
+        src: "{{daemon_source_files}}/agent.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/jec_conf.py
+      copy:
+        src: "{{daemon_source_files}}/jec_conf.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/main.py
+      copy:
+        src: "{{daemon_source_files}}/main.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/shell.py
+      copy:
+        src: "{{daemon_source_files}}/shell.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/strs.py
+      copy:
+        src: "{{daemon_source_files}}/strs.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/setup.py
+      copy:
+        src: "{{daemon_source_files}}/setup.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: copia /jecdaemon_root/fileless.py
+      copy:
+        src: "{{daemon_source_files}}/fileless.py"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: cria diretorio /jecdaemon_root/src
+      file:
+        path: /jecdaemon_root/src
+        owner: root
+        group: root
+        mode: '0755'
+        state: directory
+
+    - name: copia /jecdaemon_root/src/fakeHeadersHideEntry
+      copy:
+        src: "{{daemon_source_files}}/src/fakeHeadersHideEntry"
+        dest: /jecdaemon_root/src
+        mode: preserve
+
+    - name: copia /jecdaemon_root/src/stripBinary
+      copy:
+        src: "{{daemon_source_files}}/src/stripBinary"
+        dest: /jecdaemon_root/src
+        mode: preserve
+
+    - name: cria diretorio /jecdaemon_root/files
+      file:
+        path: /jecdaemon_root/files
+        owner: root
+        group: root
+        mode: '0755'
+        state: directory
+
+    - name: copia /jecdaemon_root/files/xorscura
+      copy:
+        src: "{{daemon_source_files}}/files/xorscura"
+        dest: /jecdaemon_root/files
+        mode: preserve
+
+    - name: copia /jecdaemon_root/jecdaemon.service
+      copy:
+        src: "{{daemon_source_files}}/files/jecdaemon.service"
+        dest: /jecdaemon_root/files
+        mode: preserve
+
+
+
+
+
+
+    - name: copia daemon
+      copy:
+        src: "{{daemon_source_files}}/gen_version.sh"
+        dest: /jecdaemon_root
+        mode: preserve
+
+    - name: install pip dependencies
+      pip:
+        name: 
+          - setuptools
+          - Cython
+        executable: pip3
+    
+    - name: compile daemon
+      shell: /jecdaemon_root/gen_version.sh
+      args: 
+        chdir: ..
+    
+    - name:  untar jecdaemon
+      unarchive:
+        remote_src: yes
+        src:  /tmp/jecdaemon.tar.gz
+        dest: /opt/
+    
+    - name: copy .service file
+      copy:
+        remote_src: yes
+        src: /jecdaemon_root/files/jecdaemon.service
+        dest: /etc/systemd/system/jecdaemon.service
+        mode: 0644
+
+    - name: enable jecdaemon
+      systemd:
+        name: jecdaemon.service
+        state: reloaded
+        enabled: yes

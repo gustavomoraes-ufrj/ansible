@@ -1,0 +1,48 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: enable backports repository
+    apt_repository:
+      repo: deb http://ftp.br.debian.org/debian buster-backports main contrib non-free
+      state: present
+
+  - name: accept license
+    debconf:
+      name: 'firmware-ipw2x00'
+      question: 'firmware-ipw2x00/license/accepted'
+      value: 'true'
+      vtype: 'select'
+  
+  - name: install backports package
+    apt:
+      name: ['linux-image-amd64', 'atmel-firmware', 'firmware-linux', 'firmware-atheros', 'firmware-brcm80211', 'firmware-ipw2x00', 'firmware-iwlwifi', 'firmware-libertas', 'firmware-ralink', 'firmware-realtek', 'zd1211-firmware', 'firmware-linux-nonfree', 'firmware-b43-installer', 'libertas-firmware', 'firmware-b43legacy-installer','firmware-ti-connectivity', 'firmware-bnx2', 'firmware-bnx2x']
+      state: latest
+      default_release: buster-backports
+      update_cache: yes
+      cache_valid_time: 3600
+    register: install_backports
+
+  - name: get old kernels package names
+    shell: |
+      ver=$(dpkg -l|grep -i linux-image-amd64|tr -s " "|cut -d " " -f3)
+      dpkg -l|grep -i linux-image|tr -s " "|grep -v $ver|cut -d " " -f2
+    args:
+      executable: /bin/bash
+    register: oldkernels
+    when: install_backports.changed
+    changed_when: '"linux-image" in oldkernels.stdout'
+
+  - name: remove old kernels packages
+    apt:
+      name: "{{ oldkernels.stdout }}"
+      state: absent
+      purge: yes
+    register: removekernel
+    when: oldkernels.changed
+
+  - name: reboot after kernel upgrade
+    reboot:
+    when: removekernel.changed

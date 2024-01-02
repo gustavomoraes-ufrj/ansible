@@ -1,0 +1,26 @@
+- hosts: all
+  user: root
+  vars_files:
+    - ../external_vars.yaml
+
+  tasks:
+  - name: disable net setup rule
+    file:
+      src: /dev/null
+      dest: /etc/udev/rules.d/80-net-setup-link.rules
+      state: link
+
+  - name: aplica patch em dhclient-script
+    patch:
+      src: "{{source_files}}/source/je-script/patches/dhclient-script.patch"
+      dest: /sbin/dhclient-script
+
+  - name: configura apt.conf
+    lineinfile:
+      path: /etc/apt/apt.conf
+      line: 'Apt::Install-Recommends "false";'
+      create: yes
+
+  - name: atualiza os pacotes
+    apt:
+      upgrade: safe
